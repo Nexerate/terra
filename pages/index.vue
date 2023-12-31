@@ -6,4 +6,8 @@
 
 <script setup></script>
 
-<style lang="scss"></style>
+<style lang="scss">
+body {
+    overflow: hidden;
+}
+</style>

@@ -3,6 +3,10 @@
   "extends": "./.nuxt/tsconfig.json",
   "compilerOptions": {
     "resolveJsonModule": true,
-    "types": ["vue", "three"]
+    "types": ["vue", "three"],
+    "baseUrl": ".",
+    "paths": {
+      "three": ["node_modules/three"],
+    }
   }
 }

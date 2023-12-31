@@ -6,10 +6,5 @@ export default defineNuxtConfig({
   //   preset: 'service-worker'
   // },
   css: ['~/assets/main.scss'],
-  // modules: [
-  //   // '@nuxtjs/google-fonts',
-  //   // 'nuxt-icon',
-  //   'three',
-  // ],
 })
 

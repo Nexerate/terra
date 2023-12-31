@@ -1,13 +1,18 @@
 <template>
-    <div>
+    <div ref="input">
         <canvas ref="canvas" />
     </div>
 </template>
 
-<style lang="scss"></style>
+<style lang="scss">
+div {
+    overflow: hidden;
+}
+</style>
 
 <script setup lang='ts'>
-import { Vector3, Line, LineSegments, BufferGeometry, LineBasicMaterial, Group, Scene, PerspectiveCamera, WebGLRenderer, Mesh, MeshBasicMaterial, SphereGeometry, Float32BufferAttribute } from 'three';
+import { Vector3, Line, BufferGeometry, LineBasicMaterial, Group, Scene, PerspectiveCamera, WebGLRenderer, Mesh, MeshBasicMaterial, SphereGeometry, Float32BufferAttribute, Material } from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 type Geometry = {
     type: string;
@@ -18,25 +23,10 @@ type Polygon = Geometry & {
     coordinates: number[][][];
 };
 
-// Define the MultiPolygon type extending Geometry
 type MultiPolygon = Geometry & {
     type: 'MultiPolygon';
-    /** #### Outermost Array (MultiPolygon):
-        - This array represents the entire MultiPolygon geometry.
-        - It contains multiple elements, each corresponding to a single polygon.
-        #### Second-Level Array (Polygon):
-        - Each element in the outermost array represents a single polygon.
-        - A polygon may have one or more rings (also known as shells or exterior and interior rings).
-        #### Third-Level Array (Ring):
-        - Each element in the second-level array represents a single ring.
-        - The first ring is typically the exterior ring (shell), and subsequent rings are interior rings (holes).
-        #### Innermost Array (Coordinate Pair):
-        - Each element in the third-level array represents a coordinate pair (longitude and latitude).
-        - The coordinate pairs define the vertices of the polygon.
-    */
     coordinates: number[][][][];
 };
-
 
 type Feature = {
     geometry: Geometry;
@@ -46,7 +36,11 @@ type FeatureCollection = {
     features: Feature[];
 }
 
-const lineMat = new LineBasicMaterial({ color: 0xffffff, linewidth: 100, });
+const input = shallowRef<HTMLDivElement>();
+
+const borderMat = new LineBasicMaterial({ color: 0xdddddd });
+const gridMat = new LineBasicMaterial({ color: 0x696969, opacity: 0.1, transparent: true });
+const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.95, transparent: true });
 
 async function loadGeoJson(): Promise<FeatureCollection> {
     const response = await fetch('/world2.geojson');
@@ -69,13 +63,12 @@ function geometriesFromFeatureCollection(geojson: FeatureCollection) {
     return geojson.features.map(feature => feature.geometry);
 }
 
-function sphere() {
-    var geometry = new SphereGeometry(0.4999, 64, 64); // radius, widthSegments, heightSegments
-    var material = new MeshBasicMaterial({ color: 0x18181e }); // You can customize color and other properties
+function sphere(radius: number, material: Material) {
+    var geometry = new SphereGeometry(radius, 64, 64);
     return new Mesh(geometry, material);
 }
 
-function circle(radius: number,) {
+function circle(radius: number, material: Material) {
     const geometry = new BufferGeometry();
     const vertices = [];
 
@@ -90,7 +83,6 @@ function circle(radius: number,) {
     }
 
     geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3));
-    const material = new LineBasicMaterial({ color: 0x696969, opacity: 0.1, transparent: true });
     const circle = new Line(geometry, material);
 
     return circle;
@@ -101,13 +93,9 @@ const deg2rad = Math.PI / 180;
 function latLonGrid(radius: number): Line[] {
     const grid: Line[] = [];
 
-
     // Latitude lines (horizontal circles)
     for (var lat = -90; lat < 90; lat += 10) {
-        // var latLine = circle(radius);
-        // latLine.rotation.x = lat * (Math.PI / 180);
-        // grid.push(latLine);
-        const latLine = circle(radius);
+        const latLine = circle(radius, gridMat);
         latLine.position.y = radius * Math.sin(lat * deg2rad);
         latLine.scale.setScalar(Math.cos(lat * deg2rad)); // Decrease in size
         latLine.rotation.x = Math.PI / 2;
@@ -116,7 +104,7 @@ function latLonGrid(radius: number): Line[] {
 
     // Longitude lines (vertical circles)
     for (var lon = 0; lon < 360; lon += 10) {
-        var lonLine = circle(radius);
+        var lonLine = circle(radius, gridMat);
         lonLine.rotation.y = lon * deg2rad;
         grid.push(lonLine);
     }
@@ -135,7 +123,7 @@ function linesFromPolygon(polygon: Polygon): Line[] {
 
         const geometry = new BufferGeometry().setFromPoints(points);
 
-        lines.push(new Line(geometry, lineMat));
+        lines.push(new Line(geometry, borderMat));
     });
 
     return lines;
@@ -153,7 +141,7 @@ function linesFromMultiPolygon(multiPolygon: MultiPolygon): Line[] {
 
             const geometry = new BufferGeometry().setFromPoints(points);
 
-            lines.push(new Line(geometry, lineMat));
+            lines.push(new Line(geometry, borderMat));
         });
     });
 
@@ -162,23 +150,51 @@ function linesFromMultiPolygon(multiPolygon: MultiPolygon): Line[] {
 
 const canvas = shallowRef<HTMLCanvasElement>();
 
+
 onMounted(() => {
     const globe = new Group();
 
-    // Create a perspective camera
     const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 1000;
 
     // Create a renderer
     const renderer = new WebGLRenderer({ canvas: canvas.value, alpha: true, antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    // document.body.appendChild(renderer.domElement);
+
+    // Create OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = true;
+    controls.zoomSpeed = 10;
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.2;
+    controls.maxPolarAngle = Math.PI - (Math.PI / 5);
+    controls.minPolarAngle = 0 + (Math.PI / 5);
+
+    // Function to handle window resizing
+    function onWindowResize() {
+        const scale = Math.min(window.innerWidth, window.innerHeight);
+        globe.scale.setScalar(scale);
+
+        controls.minDistance = scale / 1.5;
+        controls.maxDistance = scale * 2;
+        controls.zoomSpeed = scale / 50;
+
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.near = 1;
+        camera.far = scale * 2,
+
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    window.addEventListener('resize', onWindowResize, false);
+    onWindowResize();
 
     async function main() {
         try {
             const geojsonData = await loadGeoJson();
             const geometries = geometriesFromFeatureCollection(geojsonData);
-            // const wireframes = wireframeFromMultiPolygons(multiPolygons);
 
             const wireframes: Line[] = [];
 
@@ -188,7 +204,7 @@ onMounted(() => {
             });
 
             // Add wireframes to the globe group
-            globe.add(sphere())
+            globe.add(sphere(0.4999, sphereMat));
             globe.add(...wireframes);
             globe.add(...latLonGrid(0.501));
 
@@ -199,16 +215,16 @@ onMounted(() => {
             animate();
 
             function animate() {
-                const scale = Math.min(window.innerWidth, window.innerHeight);
-                globe.scale.setScalar(scale);
-
                 // Rotate the globe (adjust the rotation speed as needed)
                 globe.rotation.y += 0.001;
 
-                // Render the scene
-                camera.position.set(0, scale * 0.6, scale * 0.6);
-                camera.lookAt(0, 0, 0);
+                // camera.position.normalize().multiplyScalar(scale * controls.getDistance());
+                // camera.position.set(0, 0, scale);
+
+                camera.updateProjectionMatrix();
                 renderer.render(scene, camera);
+
+                controls.update();
 
                 // Request the next frame
                 requestAnimationFrame(animate);
