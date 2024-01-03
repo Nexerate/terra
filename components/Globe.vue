@@ -12,13 +12,12 @@ div {
 </style>
 
 <script setup lang='ts'>
-import { Vector3, Line, BufferGeometry, LineBasicMaterial, Group, Scene, PerspectiveCamera, WebGLRenderer, Mesh, MeshBasicMaterial, SphereGeometry, Float32BufferAttribute, Material, Box2, Vector2, Raycaster } from 'three';
+import { Vector3, Line, BufferGeometry, LineBasicMaterial, Group, Scene, PerspectiveCamera, WebGLRenderer, Mesh, MeshBasicMaterial, SphereGeometry, Float32BufferAttribute, Material, Box2, Vector2, Raycaster, type ColorRepresentation } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { degToRad, radToDeg } from 'three/src/math/MathUtils';
+import { radToDeg } from 'three/src/math/MathUtils';
 
 abstract class Geometry {
     public abstract type: string;
-    // public abstract coordinates: number[][][] | number[][][][];
     protected boundingBox: Box2 | null = null;
 
     constructor(protected data: Feature, public coordinates: number[][][] | number[][][][]) {
@@ -323,6 +322,14 @@ class Country {
     public coordInside(coord: Vector2) {
         return this.geometry.pointInside(coord);
     }
+
+    public updateColor(color: ColorRepresentation | undefined) {
+        const mat = new LineBasicMaterial({color, linewidth: 1});
+
+        this.borders.forEach(border => {
+            border.material = mat;
+        });
+    }
 }
 
 class Globe {
@@ -389,7 +396,7 @@ onMounted(() => {
 
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.near = 1;
-        camera.far = scale * 2;
+        camera.far = scale * 4;
 
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -416,6 +423,7 @@ onMounted(() => {
         onWindowResize();
         animate();
 
+        // An optimization would be to move selection to mouse move, window resize and zoom
         function animate() {
             globe?.rotate(rotationFromUTC());
 
@@ -433,14 +441,13 @@ onMounted(() => {
                     const localIntersection = globe.node.children[0].worldToLocal(intersection);
                     const coord = coordFromVector3(localIntersection);
 
-                    // console.clear();
-                    // console.log(`(${coord.y.toFixed(1)},${coord.x.toFixed(1)})`);
-
                     const newSelected = globe.selectCountry(coord);
                     if (newSelected != selected) {
+                        selected?.updateColor(0xdddddd);
                         selected = newSelected;
                         if (selected !== null) {
-                            console.log(selected.properties.NAME_EN);
+                            selected.updateColor(0xdd1111);
+                            // console.log(selected.properties.NAME_EN);
                         }
                     }
                 }
