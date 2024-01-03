@@ -18,9 +18,10 @@ import { degToRad, radToDeg } from 'three/src/math/MathUtils';
 
 abstract class Geometry {
     public abstract type: string;
+    // public abstract coordinates: number[][][] | number[][][][];
     protected boundingBox: Box2 | null = null;
 
-    constructor(protected data: Feature) {
+    constructor(protected data: Feature, public coordinates: number[][][] | number[][][][]) {
         this.computeBoundingBox();
     }
 
@@ -28,46 +29,39 @@ abstract class Geometry {
 
     public abstract pointInside(coord: Vector2): boolean;
 
-    protected windingNumber(point: Vector2, points: number[][]): boolean {
-        let wn = 0; // Winding number
+    windingNumber(point: Vector2, polygon: number[][]): boolean {
+        const points = polygon.map(coord => new Vector2(coord[0], coord[1]));
+        
+        const n = points.length;
+        let windingNumber = 0;
 
-        for (let i = 0; i < points.length; i++) {
-            const vertex1 = new Vector2(points[i][0], points[i][1]);
-            const i2 = (i + 1) % points.length;
-            const vertex2 = new Vector2(points[i2][0], points[i2][1]);
+        for (let i = 0; i < n; i++) {
+            const p1 = points[i];
+            const p2 = points[(i + 1) % n];
 
-            if (vertex1.y <= point.y) {
-                if (vertex2.y > point.y && this.isLeft(vertex1, vertex2, point) > 0) {
-                    wn++;
+            if (p1.y <= point.y) {
+                if (p2.y > point.y && this.isLeft(p1, p2, point) > 0) {
+                    windingNumber++;
                 }
-            } else {
-                if (vertex2.y <= point.y && this.isLeft(vertex1, vertex2, point) < 0) {
-                    wn--;
-                }
+            } else if (p2.y <= point.y && this.isLeft(p1, p2, point) < 0) {
+                windingNumber--;
             }
         }
 
-        return wn === 0;
+        return windingNumber !== 0;
     }
 
-    // Helper function to determine if a point is to the left of a line
-    private isLeft(p0: Vector2, p1: Vector2, p2: Vector2): number {
-        return (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
+    private isLeft(p1: Vector2, p2: Vector2, p: Vector2): number {
+        return (p2.x - p1.x) * (p.y - p1.y) - (p.x - p1.x) * (p2.y - p1.y);
     }
 }
 
 class Polygon extends Geometry {
     public type = 'Polygon';
-    public coordinates: number[][][];
+    declare coordinates: number[][][];
 
     constructor(data: Feature) {
-        super(data);
-
-        if (data.geometry.type !== this.type) {
-            throw new Error('Invalid geometry type. Expected "Polygon".');
-        }
-
-        this.coordinates = (data.geometry as Polygon).coordinates;
+        super(data, data.geometry.coordinates as number[][][]);
     }
 
     protected computeBoundingBox(): void {
@@ -76,10 +70,10 @@ class Polygon extends Geometry {
 
         this.coordinates.forEach(ring => {
             ring.forEach(coord => {
-                min.x = Math.min(coord[0], min.x);
-                min.y = Math.min(coord[1], min.y);
-                max.x = Math.max(coord[0], max.x);
-                max.y = Math.max(coord[1], max.y);
+                min.x = Math.min(coord[0], min.x); // Min longitude
+                min.y = Math.min(coord[1], min.y); // Min latitude
+                max.x = Math.max(coord[0], max.x); // Max longitude
+                max.y = Math.max(coord[1], max.y); // Max latitude
             });
         });
 
@@ -89,6 +83,7 @@ class Polygon extends Geometry {
     public pointInside(coord: Vector2): boolean {
         if (!this.boundingBox?.containsPoint(coord)) return false;
 
+        // Rings
         for (let i = 0; i < this.coordinates.length; i++) {
             if (this.windingNumber(coord, this.coordinates[i])) return true;
         }
@@ -101,16 +96,10 @@ let selected: Country | null = null;
 
 class MultiPolygon extends Geometry {
     public type = 'MultiPolygon';
-    public coordinates: number[][][][];
+    declare coordinates: number[][][][];
 
     constructor(data: Feature) {
-        super(data);
-
-        if (data.geometry.type !== this.type) {
-            throw new Error('Invalid geometry type. Expected "MultiPolygon".');
-        }
-
-        this.coordinates = (data.geometry as MultiPolygon).coordinates;
+        super(data, data.geometry.coordinates as number[][][][]);
     }
 
     protected computeBoundingBox(): void {
@@ -120,19 +109,24 @@ class MultiPolygon extends Geometry {
         this.coordinates.forEach(polygon => {
             polygon.forEach(ring => {
                 ring.forEach(coord => {
-                    min.x = Math.min(coord[0], min.x);
-                    min.y = Math.min(coord[1], min.y);
-                    max.x = Math.max(coord[0], max.x);
-                    max.y = Math.max(coord[1], max.y);
+                    // Min would be bottom left and max top right
+                    min.x = Math.min(coord[0], min.x); // Min longitude
+                    min.y = Math.min(coord[1], min.y); // Min latitude
+                    max.x = Math.max(coord[0], max.x); // Max longitude
+                    max.y = Math.max(coord[1], max.y); // Max latitude
                 });
             });
-        })
+        });
+
+        this.boundingBox = new Box2(min, max);
     }
 
     public pointInside(coord: Vector2): boolean {
         if (!this.boundingBox?.containsPoint(coord)) return false;
 
+        // Polygons
         for (let i = 0; i < this.coordinates.length; i++) {
+            // Rings
             for (let j = 0; j < this.coordinates[i].length; j++) {
                 if (this.windingNumber(coord, this.coordinates[i][j])) return true;
             }
@@ -226,7 +220,7 @@ function linesFromPolygon(polygon: Polygon): Line[] {
     const lines: Line[] = [];
 
     polygon.coordinates.forEach(ring => {
-        const points = ring.map(coord => vertex(coord, 0.5));
+        const points = ring.map(coord => vertex(coord, 1));
 
         // Close the loop by adding the first point at the end
         points.push(points[0]);
@@ -244,7 +238,7 @@ function linesFromMultiPolygon(multiPolygon: MultiPolygon): Line[] {
 
     multiPolygon.coordinates.forEach(polygon => {
         polygon.forEach(ring => {
-            const points = ring.map(coord => vertex(coord, 0.5));
+            const points = ring.map(coord => vertex(coord, 1));
 
             // Close the loop by adding the first point at the end
             points.push(points[0]);
@@ -298,75 +292,36 @@ function createOrbitControls(camera: PerspectiveCamera, renderer: WebGLRenderer)
     return controls;
 }
 
-// function coordFromVector3(position: Vector3, sphereRadius: number) {
-//     const lat = Math.acos(position.y / sphereRadius); //theta
-//     const lon = Math.atan(position.x / position.z); //phi
-//     return [lat, lon];
-// }
-
 function coordFromVector3(pos: Vector3) {
     pos = pos.normalize();
 
     const lat = radToDeg(Math.asin(pos.y));
     const lon = radToDeg(Math.atan2(pos.x, pos.z));
 
-    // Longitude is 90 degrees off thanks to our conversion in vertex()
-
-    return [lat, lon];
-    // let longitude = Math.atan2(pos.y, pos.x);
-    // let latitude = Math.asin(pos.z);
-
-    // // Convert radians to degrees if necessary
-    // longitude = radToDeg(longitude);
-    // latitude = radToDeg(latitude);
-
-    // return [latitude, longitude];
+    return new Vector2(lon, lat);
 }
 
 class Country {
     public properties: any;
-    public coordinates: number[][][][];
+    public geometry: Polygon | MultiPolygon;
     public borders: Line[];
-    public boundingBox: Box2 | null = null;
-
-    // TODO: 2d bounding box
 
     constructor(data: Feature) {
-        const geo = data.geometry;
-        if (geo.type == 'Polygon') {
-            this.borders = linesFromPolygon(geo as Polygon);
-            this.coordinates = [];
-            this.coordinates.push((geo as Polygon).coordinates);
+        this.properties = data.properties;
+
+        if (data.geometry.type == 'Polygon') {
+            this.geometry = new Polygon(data);
+            this.borders = linesFromPolygon(this.geometry);
+        } else if (data.geometry.type === 'MultiPolygon') {
+            this.geometry = new MultiPolygon(data);
+            this.borders = linesFromMultiPolygon(this.geometry);
+        } else {
+            throw Error(data.geometry.type);
         }
-        else {
-            this.borders = linesFromMultiPolygon(geo as MultiPolygon);
-            this.coordinates = (geo as MultiPolygon).coordinates;
-        }
-    }
-
-    private computeBoundingBox() {
-        const min = new Vector2(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
-        const max = new Vector2(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
-
-        this.coordinates.forEach(polygon => {
-            polygon.forEach(ring => {
-                ring.forEach(coord => {
-                    min.x = Math.min(coord[0], min.x);
-                    min.y = Math.min(coord[1], min.y);
-                    max.x = Math.max(coord[0], max.x);
-                    max.y = Math.max(coord[1], max.y);
-                });
-            });
-        });
-
-        this.boundingBox = new Box2(min, max);
     }
 
     public coordInside(coord: Vector2) {
-        if (!this.boundingBox?.containsPoint(coord)) return false;
-
-
-        // If inside bounding box, perform winding number
+        return this.geometry.pointInside(coord);
     }
 }
 
@@ -387,33 +342,9 @@ class Globe {
             this.borders.push(...country.borders);
         });
 
-        this.node.add(sphere(0.4999, sphereMat));
+        this.node.add(sphere(0.9999, sphereMat));
         this.node.add(...this.borders);
-        this.node.add(...latLonGrid(0.501));
-
-        this.computeBoundingBoxes();
-    }
-
-    private computeBoundingBoxes() {
-        this.borders.forEach(border => {
-            border.geometry.computeBoundingBox();
-        });
-    }
-
-    private countryIntersect(point: Vector3) {
-        const intersections: Line[] = [];
-
-        for (let i = 0; i < this.borders.length; i++) {
-            const insideBox = this.borders[i].geometry.boundingBox?.containsPoint(point);
-
-            if (!insideBox) continue;
-
-            intersections.push(this.borders[i]);
-        }
-
-        if (intersections.length == 0) return null;
-
-
+        this.node.add(...latLonGrid(1.0001));
     }
 
     public scale(scale: number) {
@@ -422,6 +353,19 @@ class Globe {
 
     public rotate(angle: number) {
         this.node.rotation.y = angle;
+    }
+
+    public selectCountry(coord: Vector2): Country | null {
+        const selection: Country[] = [];
+
+        for (let i = 0; i < this.countries.length; i++) {
+            if (this.countries[i].coordInside(coord)) selection.push(this.countries[i]);
+        }
+
+        if (selection.length === 0) return null;
+
+        // Handle edge-cases such as Lesotho and the Vatican which are inside other countries
+        return selection[0];
     }
 }
 
@@ -439,7 +383,7 @@ onMounted(() => {
         const scale = Math.min(window.innerWidth, window.innerHeight);
         globe?.scale(scale);
 
-        controls.minDistance = scale / 1.5;
+        controls.minDistance = scale * 1.25;
         controls.maxDistance = scale * 2;
         controls.zoomSpeed = scale / 50;
 
@@ -481,16 +425,24 @@ onMounted(() => {
 
             if (globe != null) {
                 // Perform the raycast
-                const intersects = raycaster.intersectObjects([globe.node.children[0]]);
-    
+                const intersects = raycaster.intersectObject(globe.node.children[0]);
+
                 // Check for intersections
                 if (intersects.length > 0) {
                     const intersection = intersects[0].point;
-                    const localIntersection = globe.node.worldToLocal(intersection);
+                    const localIntersection = globe.node.children[0].worldToLocal(intersection);
                     const coord = coordFromVector3(localIntersection);
-                    console.clear();
-                    console.log("(" + coord[0].toFixed(1) + "," + coord[1].toFixed(1) + ")");
-                    // console.log("Intersected object:", selectedObject);
+
+                    // console.clear();
+                    // console.log(`(${coord.y.toFixed(1)},${coord.x.toFixed(1)})`);
+
+                    const newSelected = globe.selectCountry(coord);
+                    if (newSelected != selected) {
+                        selected = newSelected;
+                        if (selected !== null) {
+                            console.log(selected.properties.NAME_EN);
+                        }
+                    }
                 }
             }
 
