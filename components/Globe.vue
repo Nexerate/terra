@@ -1,13 +1,27 @@
 <template>
     <div ref="input">
         <canvas ref="canvas" />
+        <p 
+            :style="{ left: mouseX + 'px', top: mouseY + 'px'}"
+            id="country-label" 
+            ref="countryLabel">
+            {{ countryName }}
+        </p>
     </div>
 </template>
 
 <style lang="scss">
 div {
     overflow: hidden;
-    cursor: grab;
+    // cursor: grab;
+}
+
+#country-label {
+    position: absolute;
+    color: white;
+    font-size: 20px;
+    pointer-events: none;
+    user-select: none;
 }
 </style>
 
@@ -15,6 +29,17 @@ div {
 import { Vector3, Line, BufferGeometry, LineBasicMaterial, Group, Scene, PerspectiveCamera, WebGLRenderer, Mesh, MeshBasicMaterial, SphereGeometry, Float32BufferAttribute, Material, Box2, Vector2, Raycaster, type ColorRepresentation } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { radToDeg } from 'three/src/math/MathUtils';
+
+const input = shallowRef<HTMLDivElement>();
+const countryLabel = shallowRef<HTMLParagraphElement>();
+const countryName = ref('');
+
+const borderMat = new LineBasicMaterial({ color: 0x666666 });
+const gridMat = new LineBasicMaterial({ color: 0x1a1a1a });
+const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.9, transparent: true });
+
+const mouseX = ref(0);
+const mouseY = ref(0);
 
 abstract class Geometry {
     public abstract type: string;
@@ -26,11 +51,15 @@ abstract class Geometry {
 
     protected abstract computeBoundingBox(): void;
 
-    public abstract pointInside(coord: Vector2): boolean;
+    public abstract pointInPolygon(coord: Vector2): boolean;
+
+    public pointInBoundingBox(point: Vector2) {
+        return this.boundingBox?.containsPoint(point);
+    }
 
     windingNumber(point: Vector2, polygon: number[][]): boolean {
         const points = polygon.map(coord => new Vector2(coord[0], coord[1]));
-        
+
         const n = points.length;
         let windingNumber = 0;
 
@@ -79,8 +108,8 @@ class Polygon extends Geometry {
         this.boundingBox = new Box2(min, max);
     }
 
-    public pointInside(coord: Vector2): boolean {
-        if (!this.boundingBox?.containsPoint(coord)) return false;
+    public pointInPolygon(coord: Vector2): boolean {
+        // if (!this.boundingBox?.containsPoint(coord)) return false;
 
         // Rings
         for (let i = 0; i < this.coordinates.length; i++) {
@@ -120,8 +149,8 @@ class MultiPolygon extends Geometry {
         this.boundingBox = new Box2(min, max);
     }
 
-    public pointInside(coord: Vector2): boolean {
-        if (!this.boundingBox?.containsPoint(coord)) return false;
+    public pointInPolygon(coord: Vector2): boolean {
+        // if (!this.boundingBox?.containsPoint(coord)) return false;
 
         // Polygons
         for (let i = 0; i < this.coordinates.length; i++) {
@@ -143,12 +172,6 @@ type Feature = {
 type FeatureCollection = {
     features: Feature[];
 }
-
-const input = shallowRef<HTMLDivElement>();
-
-const borderMat = new LineBasicMaterial({ color: 0xdddddd });
-const gridMat = new LineBasicMaterial({ color: 0x1a1a1a });
-const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.95, transparent: true });
 
 async function loadGeoJson(): Promise<FeatureCollection> {
     const response = await fetch('/world2.geojson');
@@ -319,12 +342,16 @@ class Country {
         }
     }
 
-    public coordInside(coord: Vector2) {
-        return this.geometry.pointInside(coord);
+    public pointInBoundingBox(point: Vector2) {
+        return this.geometry.pointInBoundingBox(point);
+    }
+
+    public pointWithinBorders(point: Vector2) {
+        return this.geometry.pointInPolygon(point);
     }
 
     public updateColor(color: ColorRepresentation | undefined) {
-        const mat = new LineBasicMaterial({color, linewidth: 1});
+        const mat = new LineBasicMaterial({ color, linewidth: 1 });
 
         this.borders.forEach(border => {
             border.material = mat;
@@ -366,13 +393,18 @@ class Globe {
         const selection: Country[] = [];
 
         for (let i = 0; i < this.countries.length; i++) {
-            if (this.countries[i].coordInside(coord)) selection.push(this.countries[i]);
+            if (this.countries[i].pointInBoundingBox(coord)) selection.push(this.countries[i]);
         }
 
+        // We are not inside the bounding box of any country
         if (selection.length === 0) return null;
 
+        for (let i = 0; i < selection.length; i++) {
+            if (selection[i].pointWithinBorders(coord)) return selection[i];
+        }
+
         // Handle edge-cases such as Lesotho and the Vatican which are inside other countries
-        return selection[0];
+        return null;
     }
 }
 
@@ -408,6 +440,9 @@ onMounted(() => {
         // Calculate normalized device coordinates (-1 to +1) for the mouse
         mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        mouseX.value = event.clientX;
+        mouseY.value = event.clientY;
     }
 
     window.addEventListener('mousemove', onMouseMove, false);
@@ -443,11 +478,15 @@ onMounted(() => {
 
                     const newSelected = globe.selectCountry(coord);
                     if (newSelected != selected) {
-                        selected?.updateColor(0xdddddd);
+                        selected?.updateColor(borderMat.color);
                         selected = newSelected;
                         if (selected !== null) {
-                            selected.updateColor(0xdd1111);
+                            // selected.updateColor(0xdd1111);
+                            selected.updateColor(0xffffff);
+                            countryName.value = selected.properties.NAME_EN;
                             // console.log(selected.properties.NAME_EN);
+                        } else {
+                            countryName.value = '';
                         }
                     }
                 }
