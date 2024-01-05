@@ -1,20 +1,47 @@
 <template>
     <div ref="input">
         <canvas ref="canvas" />
-        <p 
-            :style="{ left: mouseX + 'px', top: mouseY + 'px'}"
-            id="country-label" 
-            ref="countryLabel">
+        <div id="earthquakes">
+            <div v-for="eq in eqReactive" :key="eq.id" class="earthquake" :style="{ left: eq.x, top: eq.y }">
+            </div>
+        </div>
+        <p id="country-label" ref="countryLabel" :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
             {{ countryName }}
         </p>
     </div>
 </template>
 
 <style lang="scss">
-div {
-    overflow: hidden;
-    // cursor: grab;
+canvas {
+    user-select: none;
+    position: absolute;
 }
+
+#input {
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+}
+
+#earthquakes {
+    position: fixed;
+    user-select: none;
+    pointer-events: none;
+    width: 100%;
+    height: 100%;
+
+    .earthquake {
+        position: absolute;
+
+        width: 4px;
+        height: 4px;
+
+        border-radius: 2px;
+
+        background-color: #ff8400;
+    }
+}
+
 
 #country-label {
     position: absolute;
@@ -25,18 +52,61 @@ div {
 }
 </style>
 
+Earthquakes are circles until they become visible on the globe (use dot product)
+Once an earthquake becomes visible it animates to an orange square sign with an earthquake icon
+If you rotate the globe, it may animate back to a circle
+If you hover the square sign, the border starts "breathing". 
+It goes out, then in again and will do that until you click or stop hover
+
+Ongoing earthquakes may pulsate or have rings coming out of them.
+
 <script setup lang='ts'>
-import { Vector3, Line, BufferGeometry, LineBasicMaterial, Group, Scene, PerspectiveCamera, WebGLRenderer, Mesh, MeshBasicMaterial, SphereGeometry, Float32BufferAttribute, Material, Box2, Vector2, Raycaster, type ColorRepresentation } from 'three';
+import { Box2, BufferGeometry, Group, Line, LineBasicMaterial, Material, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Raycaster, Scene, SphereGeometry, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { radToDeg } from 'three/src/math/MathUtils';
+import { allEQsPastDay, allEQsPastHour, type EQFeature } from '../server/earthquake';
 
 const input = shallowRef<HTMLDivElement>();
 const countryLabel = shallowRef<HTMLParagraphElement>();
 const countryName = ref('');
 
 const borderMat = new LineBasicMaterial({ color: 0x666666 });
+const borderHoverMat = new LineBasicMaterial({ color: 0xffffff });
+const borderSelectedMat = new LineBasicMaterial({ color: 0xff8400 });
 const gridMat = new LineBasicMaterial({ color: 0x1a1a1a });
 const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.9, transparent: true });
+
+const eqRaw = ref<Earthquake[]>([]);
+const eqReactive = ref<{
+    id: string,
+    x: string,
+    y: string,
+}[]>([]);
+
+function updateReactive(data: Earthquake[]) {
+    return data.map(eq => {
+        const pos = eq.getScreenPos();
+        return {
+            id: eq.id,
+            x: pos.x + 'px',
+            y: pos.y + 'px',
+        };
+    });
+}
+
+// When raw data changes, update the reactive data
+watch(eqRaw, () => {
+    eqReactive.value = updateReactive(eqRaw.value);
+});
+
+// watch(() => earthquakes.value, 
+//   (currentValue) => {
+//     currentValue.circles.forEach((item) => {
+//       console.log(item)
+//     })
+//   },
+//   {deep: true}
+// );
 
 const mouseX = ref(0);
 const mouseY = ref(0);
@@ -120,6 +190,7 @@ class Polygon extends Geometry {
     }
 }
 
+let hovered: Country | null = null;
 let selected: Country | null = null;
 
 class MultiPolygon extends Geometry {
@@ -304,13 +375,16 @@ function createRenderer(canvas: HTMLCanvasElement | undefined, window: Window) {
 
 function createOrbitControls(camera: PerspectiveCamera, renderer: WebGLRenderer) {
     const controls = new OrbitControls(camera, renderer.domElement);
+
     controls.enableZoom = true;
     controls.zoomSpeed = 10;
     controls.enableDamping = true;
     controls.dampingFactor = 0.25;
-    controls.maxPolarAngle = Math.PI - (Math.PI / 6);
-    controls.minPolarAngle = 0 + (Math.PI / 6);
+    controls.maxPolarAngle = Math.PI - (Math.PI / 12);
+    controls.minPolarAngle = 0 + (Math.PI / 12);
     controls.rotateSpeed = 0.6;
+    controls.enablePan = false;
+
     return controls;
 }
 
@@ -350,11 +424,9 @@ class Country {
         return this.geometry.pointInPolygon(point);
     }
 
-    public updateColor(color: ColorRepresentation | undefined) {
-        const mat = new LineBasicMaterial({ color, linewidth: 1 });
-
+    public updateMaterial(material: LineBasicMaterial) {
         this.borders.forEach(border => {
-            border.material = mat;
+            border.material = material;
         });
     }
 }
@@ -389,6 +461,9 @@ class Globe {
         this.node.rotation.y = angle;
     }
 
+    public getScale = () => this.node.scale.x;
+    public getRotation = () => this.node.rotation.y;
+
     public selectCountry(coord: Vector2): Country | null {
         const selection: Country[] = [];
 
@@ -399,7 +474,7 @@ class Globe {
         // We are not inside the bounding box of any country
         if (selection.length === 0) return null;
 
-        for (let i = 0; i < selection.length; i++) {
+        for (let i = selection.length - 1; i >= 0; i--) {
             if (selection[i].pointWithinBorders(coord)) return selection[i];
         }
 
@@ -408,12 +483,59 @@ class Globe {
     }
 }
 
+class Earthquake {
+    public id: string;
+    public place: string;
+    public magnitude: number;
+    public origin: number[];
+
+    constructor(data: EQFeature) {
+        this.id = data.id;
+        this.magnitude = data.properties.mag;
+        this.place = data.properties.place;
+        this.origin = data.geometry.coordinates;
+    }
+
+    /** Convert earthquake origin to screen position. */
+    public getScreenPos() {
+        if (!globe || !camera) return new Vector2();
+ 
+        const point = vertex(this.origin, globe.getScale());
+        const rotated = point.applyAxisAngle(new Vector3(0, 1, 0), globe.getRotation());
+        const projected = rotated.project(camera);
+
+        return {
+            x: (projected.x + 1) * window.innerWidth / 2,
+            y: (-projected.y + 1) * window.innerHeight / 2,
+        }
+    }
+}
+
 let globe: Globe | undefined;
+let camera: PerspectiveCamera | undefined;
+
+let animationFrameId: number = 0;
+
+onBeforeUnmount(() => {
+    cancelAnimationFrame(animationFrameId);
+});
 
 onMounted(() => {
-    const camera = createCamera(window);
+    camera = createCamera(window);
     const renderer = createRenderer(canvas.value, window);
     const controls = createOrbitControls(camera, renderer);
+
+    // renderer.domElement.addEventListener('touchstart', function (event) {
+    //     event.preventDefault();
+    // }, { passive: false });
+
+    // renderer.domElement.addEventListener('touchmove', function (event) {
+    //     event.preventDefault();
+    // }, { passive: false });
+
+    // renderer.domElement.addEventListener('touchend', function (event) {
+    //     event.preventDefault();
+    // }, { passive: false });
 
     const raycaster = new Raycaster();
     const mouse = new Vector2(-1, -1); // Initialized to top-left of the screen to avoid false intersections
@@ -426,11 +548,13 @@ onMounted(() => {
         controls.maxDistance = scale * 2;
         controls.zoomSpeed = scale / 50;
 
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.near = 1;
-        camera.far = scale * 4;
+        if (camera) {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.near = 1;
+            camera.far = scale * 4;
 
-        camera.updateProjectionMatrix();
+            camera.updateProjectionMatrix();
+        }
         renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
@@ -445,7 +569,18 @@ onMounted(() => {
         mouseY.value = event.clientY;
     }
 
+    function onClick(event: MouseEvent) {
+        if (selected === hovered) return;
+
+        selected?.updateMaterial(borderMat);
+
+        selected = hovered;
+
+        selected?.updateMaterial(borderSelectedMat);
+    }
+
     window.addEventListener('mousemove', onMouseMove, false);
+    window.addEventListener('contextmenu', onClick);
 
     async function main() {
         const geojsonData = await loadGeoJson();
@@ -458,17 +593,24 @@ onMounted(() => {
         onWindowResize();
         animate();
 
+        if (camera) {
+            camera.position.z = Math.min(window.innerWidth, window.innerHeight) * -2;
+        }
+
+        globe?.rotate(rotationFromUTC());
+
         // An optimization would be to move selection to mouse move, window resize and zoom
         function animate() {
-            globe?.rotate(rotationFromUTC());
+            globe?.rotate(globe.node.rotation.y + (Math.PI / 10000));
 
             controls.update();
 
-            raycaster.setFromCamera(mouse, camera);
-
-            if (globe != null) {
+            if (camera && globe) {
                 // Perform the raycast
+                raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObject(globe.node.children[0]);
+
+                // This is getting convoluted. Move to dedicated classes
 
                 // Check for intersections
                 if (intersects.length > 0) {
@@ -476,26 +618,51 @@ onMounted(() => {
                     const localIntersection = globe.node.children[0].worldToLocal(intersection);
                     const coord = coordFromVector3(localIntersection);
 
-                    const newSelected = globe.selectCountry(coord);
-                    if (newSelected != selected) {
-                        selected?.updateColor(borderMat.color);
-                        selected = newSelected;
-                        if (selected !== null) {
-                            // selected.updateColor(0xdd1111);
-                            selected.updateColor(0xffffff);
-                            countryName.value = selected.properties.NAME_EN;
-                            // console.log(selected.properties.NAME_EN);
+                    const newHovered = globe.selectCountry(coord);
+                    if (newHovered != hovered) {
+                        if (hovered !== selected) {
+                            hovered?.updateMaterial(borderMat);
+                        }
+                        hovered = newHovered;
+
+                        if (hovered !== null) {
+                            countryName.value = hovered.properties.NAME_EN;
+
+                            if (hovered !== selected) {
+                                hovered.updateMaterial(borderHoverMat);
+                            }
                         } else {
                             countryName.value = '';
                         }
                     }
+                } else if (hovered != null) {
+                    if (hovered !== selected) {
+                        hovered.updateMaterial(borderMat);
+                    }
+                    hovered = null;
+                    countryName.value = '';
                 }
             }
 
+            if (camera) {
+                renderer.render(scene, camera);
+            }
 
-            renderer.render(scene, camera);
-            requestAnimationFrame(animate);
+            eqReactive.value = updateReactive(eqRaw.value);
+
+            animationFrameId = requestAnimationFrame(animate);
         }
+
+        const eqData = await allEQsPastDay();
+        const newData = eqData?.features.map(eq => {
+            return new Earthquake(eq);
+        });
+
+        if (newData) {
+            eqRaw.value = newData;
+        }
+
+        console.log(eqData?.metadata.count);
     }
 
     main();

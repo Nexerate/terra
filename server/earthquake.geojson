@@ -1,0 +1,141 @@
+{
+    "type": "FeatureCollection",
+    "metadata": {
+        "generated": 1704397440000,
+        "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson",
+        "title": "USGS All Earthquakes, Past Hour",
+        "status": 200,
+        "api": "1.10.3",
+        "count": 3
+    },
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "mag": 0.84,
+                "place": "19 km N of Borrego Springs, CA",
+                "time": 1704395848220,
+                "updated": 1704396218949,
+                "tz": null,
+                "url": "https://earthquake.usgs.gov/earthquakes/eventpage/ci40455231",
+                "detail": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/ci40455231.geojson",
+                "felt": null,
+                "cdi": null,
+                "mmi": null,
+                "alert": null,
+                "status": "automatic",
+                "tsunami": 0,
+                "sig": 11,
+                "net": "ci",
+                "code": "40455231",
+                "ids": ",ci40455231,",
+                "sources": ",ci,",
+                "types": ",nearby-cities,origin,phase-data,scitech-link,",
+                "nst": 39,
+                "dmin": 0.08492,
+                "rms": 0.17,
+                "gap": 94,
+                "magType": "ml",
+                "type": "earthquake",
+                "title": "M 0.8 - 19 km N of Borrego Springs, CA"
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -116.3806667,
+                    33.4231667,
+                    12.03
+                ]
+            },
+            "id": "ci40455231"
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "mag": 0.9,
+                "place": "20 km N of Borrego Springs, CA",
+                "time": 1704395713790,
+                "updated": 1704396092937,
+                "tz": null,
+                "url": "https://earthquake.usgs.gov/earthquakes/eventpage/ci40455223",
+                "detail": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/ci40455223.geojson",
+                "felt": null,
+                "cdi": null,
+                "mmi": null,
+                "alert": null,
+                "status": "automatic",
+                "tsunami": 0,
+                "sig": 12,
+                "net": "ci",
+                "code": "40455223",
+                "ids": ",ci40455223,",
+                "sources": ",ci,",
+                "types": ",nearby-cities,origin,phase-data,scitech-link,",
+                "nst": 21,
+                "dmin": 0.09649,
+                "rms": 0.13,
+                "gap": 196,
+                "magType": "ml",
+                "type": "earthquake",
+                "title": "M 0.9 - 20 km N of Borrego Springs, CA"
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -116.3801667,
+                    33.4345,
+                    13.81
+                ]
+            },
+            "id": "ci40455223"
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "mag": 3.05,
+                "place": "14 km SE of Waikoloa, Hawaii",
+                "time": 1704395668780,
+                "updated": 1704397302771,
+                "tz": null,
+                "url": "https://earthquake.usgs.gov/earthquakes/eventpage/hv73709867",
+                "detail": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/hv73709867.geojson",
+                "felt": 23,
+                "cdi": 4.1,
+                "mmi": null,
+                "alert": null,
+                "status": "automatic",
+                "tsunami": 0,
+                "sig": 153,
+                "net": "hv",
+                "code": "73709867",
+                "ids": ",hv73709867,us6000m1ue,",
+                "sources": ",hv,us,",
+                "types": ",dyfi,origin,phase-data,",
+                "nst": 54,
+                "dmin": null,
+                "rms": 0.200000003,
+                "gap": 108,
+                "magType": "ml",
+                "type": "earthquake",
+                "title": "M 3.1 - 14 km SE of Waikoloa, Hawaii"
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -155.683502197266,
+                    19.8511657714844,
+                    32.5299987792969
+                ]
+            },
+            "id": "hv73709867"
+        }
+    ],
+    "bbox": [
+        -155.68350219727,
+        19.851165771484,
+        12.03,
+        -116.3801667,
+        33.4345,
+        32.529998779297
+    ]
+}
