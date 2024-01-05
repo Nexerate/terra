@@ -2,7 +2,8 @@
     <div ref="input">
         <canvas ref="canvas" />
         <div id="earthquakes">
-            <div v-for="eq in eqReactive" :key="eq.id" class="earthquake" :style="{ left: eq.x, top: eq.y }">
+            <div v-for="eq in eqReactive" :key="eq.id" class="earthquake"
+                :style="{ transform: eq.transform, opacity: eq.opacity, backgroundColor: eq.color }">
             </div>
         </div>
         <p id="country-label" ref="countryLabel" :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
@@ -25,7 +26,6 @@ canvas {
 
 #earthquakes {
     position: fixed;
-    user-select: none;
     pointer-events: none;
     width: 100%;
     height: 100%;
@@ -33,12 +33,12 @@ canvas {
     .earthquake {
         position: absolute;
 
-        width: 4px;
-        height: 4px;
+        width: 6px;
+        height: 6px;
 
-        border-radius: 2px;
+        border-radius: 3px;
 
-        background-color: #ff8400;
+        // background-color: #ff8400;
     }
 }
 
@@ -61,35 +61,52 @@ It goes out, then in again and will do that until you click or stop hover
 Ongoing earthquakes may pulsate or have rings coming out of them.
 
 <script setup lang='ts'>
-import { Box2, BufferGeometry, Group, Line, LineBasicMaterial, Material, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Raycaster, Scene, SphereGeometry, Vector2, Vector3, WebGLRenderer } from 'three';
+import { Box2, BufferGeometry, Color, Group, Line, LineBasicMaterial, Material, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Raycaster, Scene, SphereGeometry, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { radToDeg } from 'three/src/math/MathUtils';
 import { allEQsPastDay, allEQsPastHour, type EQFeature } from '../server/earthquake';
+
+// Materials
+const borderMat = new LineBasicMaterial({ color: 0x666666 });
+const borderHoverMat = new LineBasicMaterial({ color: 0xffffff });
+const borderSelectedMat = new LineBasicMaterial({ color: 0xff8400 });
+const gridMat = new LineBasicMaterial({ color: 0x1b1b1b });
+const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.9, transparent: true });
 
 const input = shallowRef<HTMLDivElement>();
 const countryLabel = shallowRef<HTMLParagraphElement>();
 const countryName = ref('');
 
-const borderMat = new LineBasicMaterial({ color: 0x666666 });
-const borderHoverMat = new LineBasicMaterial({ color: 0xffffff });
-const borderSelectedMat = new LineBasicMaterial({ color: 0xff8400 });
-const gridMat = new LineBasicMaterial({ color: 0x1a1a1a });
-const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.9, transparent: true });
-
 const eqRaw = ref<Earthquake[]>([]);
 const eqReactive = ref<{
     id: string,
-    x: string,
-    y: string,
+    transform: string,
+    opacity: number,
+    color: string,
 }[]>([]);
 
 function updateReactive(data: Earthquake[]) {
     return data.map(eq => {
-        const pos = eq.getScreenPos();
+        const worldPos = eq.getWorldPos();
+
+        if (!worldPos) return { id: eq.id, transform: '', opacity: 0, color: 'white' };
+
+        const screenPos = eq.getScreenPos(worldPos);
+        const opacity = eq.getOpacity(worldPos);
+        
+        if (!screenPos || !opacity) return { id: '', transform: '', opacity: 0, color: 'white' };
+        
+        const x = screenPos.x.toFixed(2);
+        const y = screenPos.y.toFixed(2);
+
+        const scale = eq.getScale();
+        const color = eq.getColor();
+
         return {
             id: eq.id,
-            x: pos.x + 'px',
-            y: pos.y + 'px',
+            transform: `translate(${x}px, ${y}px) scale(${scale})`,
+            opacity: opacity,
+            color: color,
         };
     });
 }
@@ -262,7 +279,7 @@ function vertex([longitude, latitude]: number[], radius: number) {
 }
 
 function sphere(radius: number, material: Material) {
-    var geometry = new SphereGeometry(radius, 64, 64);
+    var geometry = new SphereGeometry(radius, 48, 24);
     return new Mesh(geometry, material);
 }
 
@@ -478,7 +495,6 @@ class Globe {
             if (selection[i].pointWithinBorders(coord)) return selection[i];
         }
 
-        // Handle edge-cases such as Lesotho and the Vatican which are inside other countries
         return null;
     }
 }
@@ -496,18 +512,45 @@ class Earthquake {
         this.origin = data.geometry.coordinates;
     }
 
-    /** Convert earthquake origin to screen position. */
-    public getScreenPos() {
-        if (!globe || !camera) return new Vector2();
- 
-        const point = vertex(this.origin, globe.getScale());
-        const rotated = point.applyAxisAngle(new Vector3(0, 1, 0), globe.getRotation());
-        const projected = rotated.project(camera);
+    public getWorldPos() {
+        if (!globe) return undefined;
 
-        return {
-            x: (projected.x + 1) * window.innerWidth / 2,
-            y: (-projected.y + 1) * window.innerHeight / 2,
-        }
+        const point = vertex(this.origin, globe.getScale());
+        return point.applyAxisAngle(new Vector3(0, 1, 0), globe.getRotation());
+    }
+
+    /** Convert earthquake origin to screen position. */
+    public getScreenPos(worldPos: Vector3) {
+        if (!camera) return undefined;
+
+        const projected = worldPos.clone().project(camera);
+
+        return new Vector2(
+            (projected.x + 1) * window.innerWidth / 2,
+            (-projected.y + 1) * window.innerHeight / 2,
+        );
+    }
+
+    /** 10 is max magnitude, so anything above 5 will be enlarged. Anything else will be shrunk. */
+    public getScale() {
+        return this.magnitude / 5;
+    }
+
+    public getOpacity(worldPos: Vector3) {
+        if (!camera) return undefined
+
+        const a = camera.getWorldDirection(new Vector3()).negate().normalize();
+        const b = worldPos.normalize().clone();
+
+        return Math.min(Math.max(a.dot(b), 0.05), 1);
+    }
+
+    // https://www.mtu.edu/geo/community/seismology/learn/earthquake-measure/magnitude/ 
+    public getColor() {
+        if (this.magnitude <= 2.5) return 'green';
+        if (this.magnitude <= 5.5) return 'yellow';
+        if (this.magnitude <= 6) return 'orange';
+        return 'red';
     }
 }
 
@@ -524,18 +567,6 @@ onMounted(() => {
     camera = createCamera(window);
     const renderer = createRenderer(canvas.value, window);
     const controls = createOrbitControls(camera, renderer);
-
-    // renderer.domElement.addEventListener('touchstart', function (event) {
-    //     event.preventDefault();
-    // }, { passive: false });
-
-    // renderer.domElement.addEventListener('touchmove', function (event) {
-    //     event.preventDefault();
-    // }, { passive: false });
-
-    // renderer.domElement.addEventListener('touchend', function (event) {
-    //     event.preventDefault();
-    // }, { passive: false });
 
     const raycaster = new Raycaster();
     const mouse = new Vector2(-1, -1); // Initialized to top-left of the screen to avoid false intersections
@@ -601,7 +632,7 @@ onMounted(() => {
 
         // An optimization would be to move selection to mouse move, window resize and zoom
         function animate() {
-            globe?.rotate(globe.node.rotation.y + (Math.PI / 10000));
+            globe?.rotate(globe.node.rotation.y + (Math.PI / 100000));
 
             controls.update();
 
