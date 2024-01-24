@@ -42,6 +42,7 @@ type EQFeature = {
     id: string
 }
 
+
 type EQFeatureCollection = {
     type: 'FeatureCollection'
     metadata: {
@@ -55,26 +56,74 @@ type EQFeatureCollection = {
     features: EQFeature[]
 }
 
-/// All earthquakes in the past hour
-async function allEQsPastHour(): Promise<EQFeatureCollection | null> {
-    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson')
+/** Destilled version of EQFeature with only the properties we are using. Will be expanded upon. */
+type EQSummary = {
+    /** URL to details about earthquake. */
+    detail: string
+    /** Place */
+    place: string
+    /** Magnitude */
+    mag: number
+    /** Latitude, Longitude, Depth. */
+    coordinates: number[]
+    id: string
+}
+
+function buildURL(startDate: string, minMagnitude: number) {
+    const format = 'format=geojson';
+    const start = `starttime=${startDate}`;
+    const minMag = `minmagnitude=${minMagnitude}`;
+
+    //endTime = "endtime=2024-01-22";
+    //alertLvl = $"alertlevel={alertLevel}";
+
+    return `https://earthquake.usgs.gov/fdsnws/event/1/query?${format}&${start}&${minMag}`;
+}
+
+async function getEarthquakes(startDate: string, minMagnitude: number) : Promise<EQSummary[] | null> {
+    const url = buildURL(startDate, minMagnitude);
+
+    const res = await fetch(url);
 
     if (!res.ok) return null;
 
-    return res.json() as unknown as EQFeatureCollection;
+    const data = await res.json() as unknown as EQFeatureCollection;
+
+    return data.features.map(feature => {
+        return {
+            id: feature.id,
+            detail: feature.properties.detail,
+            place: feature.properties.place,
+            mag: feature.properties.mag,
+            coordinates: feature.geometry.coordinates,
+        };
+    });
 }
 
-async function allEQsPastDay(): Promise<EQFeatureCollection | null> {
-    const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson')
+// type Timeframe = 'all_hour' | 'all_day' | 'all_week' | 'all_month';
 
-    if (!res.ok) return null;
+// async function getEarthquakes(timeframe: Timeframe): Promise<EQSummary[] | null> {
+//     const url = `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${timeframe}.geojson`;
+//     const res = await fetch(url);
 
-    return res.json() as unknown as EQFeatureCollection;
-}
+//     if (!res.ok) return null;
+
+//     const data = await res.json() as unknown as EQFeatureCollection;
+
+//     return data.features.map(feature => {
+//         return {
+//             id: feature.id,
+//             detail: feature.properties.detail,
+//             place: feature.properties.place,
+//             mag: feature.properties.mag,
+//             coordinates: feature.geometry.coordinates,
+//         };
+//     });
+// }
 
 export {
-    EQFeatureCollection,
-    EQFeature,
-    allEQsPastHour,
-    allEQsPastDay,
+    // EQFeatureCollection,
+    // EQFeature,
+    getEarthquakes,
+    EQSummary as EQDataSummary,
 }

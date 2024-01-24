@@ -2,8 +2,10 @@
     <div ref="input">
         <canvas ref="canvas" />
         <div id="earthquakes">
-            <div v-for="eq in eqReactive" :key="eq.id" class="earthquake"
-                :style="{ transform: eq.transform, opacity: eq.opacity, backgroundColor: eq.color }">
+            <div v-for="eq in eqReactive" :key="eq.id" class="earthquake" :style="{
+                transform: eq.transform,
+                backgroundColor: eq.color,
+            }">
             </div>
         </div>
         <p id="country-label" ref="countryLabel" :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
@@ -11,6 +13,12 @@
         </p>
     </div>
 </template>
+
+TODO: Modularize and refactor
+TODO: WASD Controls?
+
+Motion blur could enhance this effect even more
+As the globe starts to slow down, earthquakes will start popping up at random places with randomized intervals
 
 <style lang="scss">
 canvas {
@@ -30,15 +38,17 @@ canvas {
     width: 100%;
     height: 100%;
 
+    transform-style: preserve-3d;
+
     .earthquake {
         position: absolute;
 
-        width: 6px;
-        height: 6px;
+        width: 8px;
+        height: 8px;
 
-        border-radius: 3px;
+        // border-radius: 4px;
 
-        // background-color: #ff8400;
+        will-change: transform, backgroundColor;
     }
 }
 
@@ -61,17 +71,19 @@ It goes out, then in again and will do that until you click or stop hover
 Ongoing earthquakes may pulsate or have rings coming out of them.
 
 <script setup lang='ts'>
-import { Box2, BufferGeometry, Color, Group, Line, LineBasicMaterial, Material, Mesh, MeshBasicMaterial, PerspectiveCamera, Quaternion, Raycaster, Scene, SphereGeometry, Vector2, Vector3, WebGLRenderer } from 'three';
+import { Box2, BufferGeometry, Group, Line, LineBasicMaterial, Material, Mesh, MeshBasicMaterial, Object3D, PerspectiveCamera, Raycaster, Scene, SphereGeometry, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { radToDeg } from 'three/src/math/MathUtils';
-import { allEQsPastDay, allEQsPastHour, type EQFeature } from '../server/earthquake';
+import { lerp, radToDeg } from 'three/src/math/MathUtils';
+import { getEarthquakes, type EQDataSummary } from '../server/earthquake';
+import { Animator, RotateAnimation, ScaleAnimation, SimpleAnimation } from '../server/animator';
+import { Easing } from '../server/easing';
 
 // Materials
-const borderMat = new LineBasicMaterial({ color: 0x666666 });
+const borderMat = new LineBasicMaterial({ color: 0x555555 });
 const borderHoverMat = new LineBasicMaterial({ color: 0xffffff });
 const borderSelectedMat = new LineBasicMaterial({ color: 0xff8400 });
 const gridMat = new LineBasicMaterial({ color: 0x1b1b1b });
-const sphereMat = new MeshBasicMaterial({ color: 0x101011, opacity: 0.9, transparent: true });
+const sphereMat = new MeshBasicMaterial({ color: 0x080808, opacity: 0.9, transparent: true });
 
 const input = shallowRef<HTMLDivElement>();
 const countryLabel = shallowRef<HTMLParagraphElement>();
@@ -81,7 +93,6 @@ const eqRaw = ref<Earthquake[]>([]);
 const eqReactive = ref<{
     id: string,
     transform: string,
-    opacity: number,
     color: string,
 }[]>([]);
 
@@ -89,23 +100,22 @@ function updateReactive(data: Earthquake[]) {
     return data.map(eq => {
         const worldPos = eq.getWorldPos();
 
-        if (!worldPos) return { id: eq.id, transform: '', opacity: 0, color: 'white' };
+        if (!worldPos) return { id: '', transform: '', color: 'white' };
 
         const screenPos = eq.getScreenPos(worldPos);
         const opacity = eq.getOpacity(worldPos);
-        
-        if (!screenPos || !opacity) return { id: '', transform: '', opacity: 0, color: 'white' };
-        
+
+        if (!screenPos || !opacity) return { id: '', transform: '', color: 'white' };
+
         const x = screenPos.x.toFixed(2);
         const y = screenPos.y.toFixed(2);
 
         const scale = eq.getScale();
-        const color = eq.getColor();
+        const color = eq.getColor(opacity * 2);
 
         return {
             id: eq.id,
-            transform: `translate(${x}px, ${y}px) scale(${scale})`,
-            opacity: opacity,
+            transform: `translate3d(${x}px, ${y}px, 0) scale(${scale}) rotateZ(45deg)`,
             color: color,
         };
     });
@@ -115,15 +125,6 @@ function updateReactive(data: Earthquake[]) {
 watch(eqRaw, () => {
     eqReactive.value = updateReactive(eqRaw.value);
 });
-
-// watch(() => earthquakes.value, 
-//   (currentValue) => {
-//     currentValue.circles.forEach((item) => {
-//       console.log(item)
-//     })
-//   },
-//   {deep: true}
-// );
 
 const mouseX = ref(0);
 const mouseY = ref(0);
@@ -262,15 +263,15 @@ type FeatureCollection = {
 }
 
 async function loadGeoJson(): Promise<FeatureCollection> {
-    const response = await fetch('/world2.geojson');
+    const response = await fetch('/world.geojson');
     const geojson = await response.json();
     return geojson;
 }
 
 /** Convert coordinates to 3D position.*/
 function vertex([longitude, latitude]: number[], radius: number) {
-    const lambda = (longitude - 90) * Math.PI / 180;
-    const phi = latitude * Math.PI / 180;
+    const lambda = (longitude - 90) * deg2rad;
+    const phi = latitude * deg2rad;
     return new Vector3(
         radius * Math.cos(phi) * Math.cos(lambda),
         radius * Math.sin(phi),
@@ -378,8 +379,8 @@ function rotationFromUTC() {
 }
 
 function createCamera(window: Window) {
-    const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = -1000;
+    const camera = new PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = -1;
     return camera;
 }
 
@@ -393,13 +394,10 @@ function createRenderer(canvas: HTMLCanvasElement | undefined, window: Window) {
 function createOrbitControls(camera: PerspectiveCamera, renderer: WebGLRenderer) {
     const controls = new OrbitControls(camera, renderer.domElement);
 
-    controls.enableZoom = true;
-    controls.zoomSpeed = 10;
     controls.enableDamping = true;
-    controls.dampingFactor = 0.25;
-    controls.maxPolarAngle = Math.PI - (Math.PI / 12);
-    controls.minPolarAngle = 0 + (Math.PI / 12);
-    controls.rotateSpeed = 0.6;
+    controls.maxPolarAngle = (180 - 15) * deg2rad;
+    controls.minPolarAngle = 15 * deg2rad;
+    controls.rotateSpeed = 0.5;
     controls.enablePan = false;
 
     return controls;
@@ -417,7 +415,8 @@ function coordFromVector3(pos: Vector3) {
 class Country {
     public properties: any;
     public geometry: Polygon | MultiPolygon;
-    public borders: Line[];
+    public node: Object3D;
+    private borders: Line[];
 
     constructor(data: Feature) {
         this.properties = data.properties;
@@ -431,6 +430,39 @@ class Country {
         } else {
             throw Error(data.geometry.type);
         }
+
+        this.node = new Object3D();
+
+        for (const border of this.borders) {
+            this.node.add(border);
+        }
+    }
+
+    public scale(scale: number) {
+        this.node.scale.setScalar(scale);
+    }
+
+    private focusAnim: ScaleAnimation | undefined;
+    private unfocusAnim: ScaleAnimation | undefined;
+
+    focus() {
+        this.unfocusAnim?.stop();
+        this.unfocusAnim = undefined;
+
+        this.focusAnim = new ScaleAnimation(this.node, 0.5, this.node.scale.x, 1.01, Easing.easeInCubic);
+        this.focusAnim.play();
+
+        this.updateMaterial(borderHoverMat);
+    }
+
+    unfocus() {
+        this.focusAnim?.stop();
+        this.focusAnim = undefined;
+
+        this.unfocusAnim = new ScaleAnimation(this.node, 0.5, this.node.scale.x, 1.0, Easing.linear);
+        this.unfocusAnim.play();
+
+        this.updateMaterial(borderMat);
     }
 
     public pointInBoundingBox(point: Vector2) {
@@ -441,7 +473,7 @@ class Country {
         return this.geometry.pointInPolygon(point);
     }
 
-    public updateMaterial(material: LineBasicMaterial) {
+    private updateMaterial(material: LineBasicMaterial) {
         this.borders.forEach(border => {
             border.material = material;
         });
@@ -450,24 +482,30 @@ class Country {
 
 class Globe {
     public node: Group;
-    private borders: Line[];
+    // private borders: Line[];
     private countries: Country[];
 
     constructor(private data: FeatureCollection) {
         this.node = new Group();
 
-        this.borders = [];
+        // this.borders = [];
         this.countries = [];
 
         data.features.forEach(feature => {
             const country = new Country(feature);
             this.countries.push(country);
-            this.borders.push(...country.borders);
+            // this.borders.push(...country.borders);
         });
 
         this.node.add(sphere(0.9999, sphereMat));
-        this.node.add(...this.borders);
+        for (const country of this.countries) {
+            this.node.add(country.node);
+        }
+        // this.node.add(...this.borders);
         this.node.add(...latLonGrid(1.0001));
+
+
+        this.rotate(rotationFromUTC());
     }
 
     public scale(scale: number) {
@@ -505,11 +543,11 @@ class Earthquake {
     public magnitude: number;
     public origin: number[];
 
-    constructor(data: EQFeature) {
+    constructor(data: EQDataSummary) {
         this.id = data.id;
-        this.magnitude = data.properties.mag;
-        this.place = data.properties.place;
-        this.origin = data.geometry.coordinates;
+        this.magnitude = data.mag;
+        this.place = data.place;
+        this.origin = data.coordinates;
     }
 
     public getWorldPos() {
@@ -545,12 +583,11 @@ class Earthquake {
         return Math.min(Math.max(a.dot(b), 0.05), 1);
     }
 
-    // https://www.mtu.edu/geo/community/seismology/learn/earthquake-measure/magnitude/ 
-    public getColor() {
-        if (this.magnitude <= 2.5) return 'green';
-        if (this.magnitude <= 5.5) return 'yellow';
-        if (this.magnitude <= 6) return 'orange';
-        return 'red';
+    public getColor(opacity: number) {
+        if (this.magnitude < 3) return `rgba(0, 255, 0, ${opacity})`;   // Green - Low
+        if (this.magnitude < 5) return `rgba(255, 255, 0, ${opacity})`; // Yellow - Moderate
+        if (this.magnitude < 7) return `rgba(255, 128, 0, ${opacity})`; // Orange - Strong
+        return `rgba(255, 0, 0, ${opacity})`;                            // Red - Severe
     }
 }
 
@@ -575,9 +612,11 @@ onMounted(() => {
         const scale = Math.min(window.innerWidth, window.innerHeight);
         globe?.scale(scale);
 
-        controls.minDistance = scale * 1.25;
-        controls.maxDistance = scale * 2;
-        controls.zoomSpeed = scale / 50;
+        controls.minDistance = scale * 1.8;
+        controls.maxDistance = scale * 1.8;
+        // controls.minDistance = scale * 1.25;
+        // controls.maxDistance = scale * 2;
+        // controls.zoomSpeed = scale / 50;
 
         if (camera) {
             camera.aspect = window.innerWidth / window.innerHeight;
@@ -600,18 +639,18 @@ onMounted(() => {
         mouseY.value = event.clientY;
     }
 
-    function onClick(event: MouseEvent) {
-        if (selected === hovered) return;
+    // function onClick(event: MouseEvent) {
+    //     if (selected === hovered) return;
 
-        selected?.updateMaterial(borderMat);
-
-        selected = hovered;
-
-        selected?.updateMaterial(borderSelectedMat);
-    }
+    //     selected?.updateMaterial(borderMat);
+    //     selected = hovered;
+    //     selected?.updateMaterial(borderSelectedMat);
+    // }
 
     window.addEventListener('mousemove', onMouseMove, false);
-    window.addEventListener('contextmenu', onClick);
+    // window.addEventListener('contextmenu', onClick);
+
+    let lastFrameTime = 0;
 
     async function main() {
         const geojsonData = await loadGeoJson();
@@ -622,19 +661,34 @@ onMounted(() => {
         scene.add(globe.node);
 
         onWindowResize();
-        animate();
+        animate(0);
 
         if (camera) {
             camera.position.z = Math.min(window.innerWidth, window.innerHeight) * -2;
         }
 
-        globe?.rotate(rotationFromUTC());
+        const scale = globe.getScale();
+        const rot = globe.getRotation();
+
+        new ScaleAnimation(globe.node, 2, scale / 10, scale, Easing.easeOutCubic).play();
+        new RotateAnimation(globe.node, 3, rot, rot + Math.PI * 2, Easing.easeOutCubic).play();
 
         // An optimization would be to move selection to mouse move, window resize and zoom
-        function animate() {
-            globe?.rotate(globe.node.rotation.y + (Math.PI / 100000));
+        function animate(time: number) {
+            // globe?.rotate(globe.node.rotation.y + (Math.PI / 100000));
+            
+            // Convert time to seconds
+            time *= 0.001;
+
+            // Calculate delta time in seconds
+            const deltaTime = time - lastFrameTime;
+            lastFrameTime = time;
 
             controls.update();
+            Animator.update(deltaTime);
+
+            // const distanceT = remap(controls.getDistance(), controls.minDistance, controls.maxDistance, 0, 1);
+            // controls.rotateSpeed = lerp(0.2, 0.5, distanceT);
 
             if (camera && globe) {
                 // Perform the raycast
@@ -650,17 +704,21 @@ onMounted(() => {
                     const coord = coordFromVector3(localIntersection);
 
                     const newHovered = globe.selectCountry(coord);
-                    if (newHovered != hovered) {
+                    if (newHovered !== hovered) {
                         if (hovered !== selected) {
-                            hovered?.updateMaterial(borderMat);
+                            // hovered?.updateMaterial(borderMat);
+                            // hovered?.scale(1);
+                            hovered?.unfocus();
                         }
                         hovered = newHovered;
 
                         if (hovered !== null) {
                             countryName.value = hovered.properties.NAME_EN;
+                            // hovered.scale(1.01);
 
                             if (hovered !== selected) {
-                                hovered.updateMaterial(borderHoverMat);
+                                // hovered.updateMaterial(borderHoverMat);
+                                hovered.focus();
                             }
                         } else {
                             countryName.value = '';
@@ -668,7 +726,8 @@ onMounted(() => {
                     }
                 } else if (hovered != null) {
                     if (hovered !== selected) {
-                        hovered.updateMaterial(borderMat);
+                        hovered.unfocus();
+                        // hovered.updateMaterial(borderMat);
                     }
                     hovered = null;
                     countryName.value = '';
@@ -684,8 +743,8 @@ onMounted(() => {
             animationFrameId = requestAnimationFrame(animate);
         }
 
-        const eqData = await allEQsPastDay();
-        const newData = eqData?.features.map(eq => {
+        const eqData = await getEarthquakes('2024-01-01', 6);
+        const newData = eqData?.map(eq => {
             return new Earthquake(eq);
         });
 
@@ -693,7 +752,7 @@ onMounted(() => {
             eqRaw.value = newData;
         }
 
-        console.log(eqData?.metadata.count);
+        console.log(newData?.length);
     }
 
     main();
