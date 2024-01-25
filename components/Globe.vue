@@ -5,6 +5,7 @@
             <div v-for="eq in eqReactive" :key="eq.id" class="earthquake" :style="{
                 transform: eq.transform,
                 backgroundColor: eq.color,
+                animationDelay: eq.delay ? eq.delay : '0',
             }">
                 <div v-if="eq.pulse" class="pulse" :style="{
                     borderColor: eq.color
@@ -50,19 +51,22 @@ canvas {
         pointer-events: all;
         cursor: pointer;
 
-        width: 8px;
-        height: 8px;
+        width: 10px;
+        height: 10px;
 
         will-change: transform, backgroundColor;
+
+        opacity: 0;
+        animation: appear 1s forwards;
     }
 
     .earthquake::before {
         content: '';
         position: absolute;
-        top: -4px;
-        left: -4px;
-        width: 16px;
-        height: 16px;
+        top: -8px;
+        left: -8px;
+        width: 26px;
+        height: 26px;
         background: transparent;
         pointer-events: all;
         z-index: -1;
@@ -76,7 +80,7 @@ canvas {
 
         transform: translate(-50%, -50%);
 
-        border: 1px solid;
+        border: 2px solid;
 
         box-sizing: border-box;
 
@@ -84,10 +88,16 @@ canvas {
         animation-iteration-count: infinite;
     }
 
+    @keyframes appear {
+        to {
+            opacity: 1;
+        }
+    }
+
     @keyframes pulsate {
         0% {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             opacity: 0.0;
         }
 
@@ -96,8 +106,8 @@ canvas {
         }
 
         100% {
-            width: 16px;
-            height: 16px;
+            width: 25px;
+            height: 25px;
             opacity: 0.0;
         }
     }
@@ -109,6 +119,8 @@ canvas {
     font-size: 20px;
     pointer-events: none;
     user-select: none;
+
+    text-shadow: 1px 1px 2px black;
 }
 </style>
 
@@ -137,10 +149,11 @@ const countryName = ref('');
 
 const eqRaw = ref<Earthquake[]>([]);
 const eqReactive = ref<{
-    id: string,
-    transform: string,
-    color: string,
-    pulse?: boolean,
+    id: string
+    transform: string
+    color: string
+    pulse?: boolean
+    delay?: string
 }[]>([]);
 
 function updateReactive(data: Earthquake[]) {
@@ -160,13 +173,16 @@ function updateReactive(data: Earthquake[]) {
         const scale = eq.getScale();
         const color = eq.getColor(opacity * 2);
 
-        const pulse = areDatesWithin24Hours(Date.now(), eq.time);
+        const pulse = areDatesWithinXHours(Date.now(), eq.time, 1);
+
+        const delay = `${eq.delay}s`;
 
         return {
             id: eq.id,
             transform: `translate3d(${x}px, ${y}px, 0) scale(${scale}) rotateZ(45deg)`,
             color,
             pulse,
+            delay,
         };
     });
 }
@@ -205,17 +221,11 @@ function rotationFromUTC() {
 }
 
 /** time1 and time2 should be derived from Dates. */
-function areDatesWithin24Hours(time1: number, time2: number): boolean {
-    // Get the time value (in milliseconds) of both dates
-    // const time1 = date1.getTime();
-    // const time2 = date2.getTime();
-
+function areDatesWithinXHours(time1: number, time2: number, x: number): boolean {
     // Calculate the difference in time between the two dates
     const differenceInMilliseconds = Math.abs(time1 - time2);
 
-    // Check if the difference is 24 hours or less
-    // 24 hours = 24 * 60 minutes/hour * 60 seconds/minute * 1000 milliseconds/second
-    return differenceInMilliseconds <= 86_400_000; // ms in a day
+    return differenceInMilliseconds <= x * 3600000; // x * ms in an hour
 }
 
 function createCamera(window: Window) {
@@ -234,9 +244,11 @@ function createRenderer(canvas: HTMLCanvasElement | undefined, window: Window) {
 function createOrbitControls(camera: PerspectiveCamera, renderer: WebGLRenderer) {
     const controls = new OrbitControls(camera, renderer.domElement);
 
+    const polarConstraint = 30;
+
     controls.enableDamping = true;
-    controls.maxPolarAngle = (180 - 15) * deg2rad;
-    controls.minPolarAngle = 15 * deg2rad;
+    controls.maxPolarAngle = (180 - polarConstraint) * deg2rad;
+    controls.minPolarAngle = polarConstraint * deg2rad;
     controls.rotateSpeed = 0.5;
     controls.enablePan = false;
 
@@ -259,12 +271,16 @@ class Earthquake {
     origin: number[];
     time: number;
 
+    delay: number;
+
     constructor(data: EQFeature) {
         this.id = data.id;
         this.magnitude = data.properties.mag;
         this.place = data.properties.place;
         this.origin = data.geometry.coordinates;
         this.time = data.properties.time;
+
+        this.delay = 2 + (Math.random() * 2);
     }
 
     public getWorldPos() {
@@ -461,7 +477,8 @@ onMounted(() => {
             animationFrameId = requestAnimationFrame(animate);
         }
 
-        const eqData = await getEarthquakes('2024-01-01', 5); // Appears to be YYYY-MM-DD
+        const time = new Date(Date.now() - 86_400_000).toISOString()
+        const eqData = await getEarthquakes(time, 5); // Appears to be YYYY-MM-DD
         const newData = eqData?.map(eq => {
             return new Earthquake(eq);
         });
