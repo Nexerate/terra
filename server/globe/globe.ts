@@ -3,7 +3,7 @@ import { degToRad } from 'three/src/math/MathUtils';
 import { ScaleAnimation } from '../animator';
 import { Easing } from '../easing';
 import { MultiPolygon, Polygon } from './geometry';
-import { Feature, FeatureCollection } from './geojson';
+import { type Feature, type FeatureCollection } from './geojson';
 
 class Globe {
     public node: Group;

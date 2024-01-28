@@ -95,42 +95,11 @@ async function getEarthquakes(startDate: string, minMagnitude: number) : Promise
     const data = await res.json() as unknown as EQFeatureCollection;
 
     return data.features;
-    // return data.features.map(feature => {
-    //     return {
-    //         id: feature.id,
-    //         detail: feature.properties.detail,
-    //         time: feature.properties.time,
-    //         place: feature.properties.place,
-    //         mag: feature.properties.mag,
-    //         coordinates: feature.geometry.coordinates,
-    //     };
-    // });
 }
-
-// type Timeframe = 'all_hour' | 'all_day' | 'all_week' | 'all_month';
-
-// async function getEarthquakes(timeframe: Timeframe): Promise<EQSummary[] | null> {
-//     const url = `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/${timeframe}.geojson`;
-//     const res = await fetch(url);
-
-//     if (!res.ok) return null;
-
-//     const data = await res.json() as unknown as EQFeatureCollection;
-
-//     return data.features.map(feature => {
-//         return {
-//             id: feature.id,
-//             detail: feature.properties.detail,
-//             place: feature.properties.place,
-//             mag: feature.properties.mag,
-//             coordinates: feature.geometry.coordinates,
-//         };
-//     });
-// }
 
 export {
     // EQFeatureCollection,
     // EQFeature,
     getEarthquakes,
-    EQFeature,
+    type EQFeature,
 }

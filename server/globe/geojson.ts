@@ -10,5 +10,5 @@ type FeatureCollection = {
 }
 
 export {
-    Feature, FeatureCollection,
+    type Feature, type FeatureCollection,
 }

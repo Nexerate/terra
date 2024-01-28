@@ -1,6 +1,6 @@
 import { Box2, BufferGeometry, Line, LineBasicMaterial, Vector2, Vector3 } from 'three';
 import { degToRad } from 'three/src/math/MathUtils';
-import { Feature } from './geojson';
+import { type Feature } from './geojson';
 
 abstract class Geometry {
     public abstract type: string;

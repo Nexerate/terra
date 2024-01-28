@@ -1,6 +1,6 @@
 import { Object3D } from 'three';
 import { clamp, lerp } from 'three/src/math/MathUtils';
-import { Easing, EasingFunction } from './easing';
+import { Easing, type EasingFunction } from './easing';
 
 abstract class Animator {
     static active: SimpleAnimation[] = [];

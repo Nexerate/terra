@@ -1,33 +1,5 @@
 type EasingFunction = (t: number) => number;
 
-// const cubicBezier = (p1x: number, p1y: number, p2x: number, p2y: number): EasingFunction => {
-//     const a = (a1: number, a2: number) => 1.0 - 3.0 * a2 + 3.0 * a1;
-//     const b = (a1: number, a2: number) => 3.0 * a2 - 6.0 * a1;
-//     const c = (a1: number) => 3.0 * a1;
-
-//     // Calculate the polynomial coefficients
-//     const calcBezier = (t: number, a1: number, a2: number) =>
-//         ((a(a1, a2) * t + b(a1, a2)) * t + c(a1)) * t;
-
-//     // Calculate the derivative of the polynomial
-//     const getSlope = (t: number, a1: number, a2: number) =>
-//         3.0 * a(a1, a2) * t * t + 2.0 * b(a1, a2) * t + c(a1);
-
-//     const getTForX = (x: number) => {
-//         // Newton-Raphson iteration
-//         let aGuessT = x;
-//         for (let i = 0; i < 4; ++i) {
-//             const currentSlope = getSlope(aGuessT, p1x, p2x);
-//             if (currentSlope === 0.0) return aGuessT;
-//             const currentX = calcBezier(aGuessT, p1x, p2x) - x;
-//             aGuessT -= currentX / currentSlope;
-//         }
-//         return aGuessT;
-//     };
-
-//     return (x: number) => calcBezier(getTForX(x), p1y, p2y);
-// };
-
 abstract class Easing {
     // Linear
     public static linear = (t: number) => t;
@@ -69,6 +41,6 @@ abstract class Easing {
 };
 
 export {
-    EasingFunction,
+    type EasingFunction,
     Easing,
 }
