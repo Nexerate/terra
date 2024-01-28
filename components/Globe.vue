@@ -17,7 +17,7 @@
             <TooltipProvider>
                 <Tooltip :delay-duration="1000">
                     <TooltipTrigger as-child>
-                        <Button :variant="null" :style="{
+                        <div :style="{
                             pointerEvents: 'all',
                             position: 'absolute',
                             left: `${mouseX - 5}px`, 
@@ -29,7 +29,7 @@
                             width: '10px',
                             height: '10px',
                         }">
-                        </Button>
+                        </div>
                     </TooltipTrigger>
                     <TooltipContent v-if="popoverData" class="popover-content">
                         <p><strong>Location:</strong> {{ popoverData.place }}</p>
