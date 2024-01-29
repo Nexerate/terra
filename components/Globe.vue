@@ -2,27 +2,26 @@
     <div ref="input">
         <canvas ref="canvas" />
         <div id="earthquakes">
-            <div v-for="(eq, index) in eqReactive" :key="eq.id" class="earthquake" :style="{
+            <div v-for="eq in eqReactive" :key="eq.id" class="earthquake" :style="{
                 transform: `translate3d(${eq.transform!.x}px, ${eq.transform!.y}px, 0) scale(${eq.transform!.scale}) rotateZ(45deg)`,
                 backgroundColor: eq.color,
                 animationDelay: eq.delay ?? '0',
                 pointerEvents: eq.pointerEvents ?? 'none'
-            }"
-            >
+            }">
                 <div v-if="eq.pulse" class="pulse" :style="{
                     borderColor: eq.color
                 }">
                 </div>
             </div>
             <TooltipProvider>
-                <Tooltip :delay-duration="1000">
+                <Tooltip :delay-duration="200" :disable-closing-trigger="true">
                     <TooltipTrigger as-child>
                         <div :style="{
                             pointerEvents: 'all',
                             position: 'absolute',
-                            left: `${mouseX - 5}px`, 
+                            left: `${mouseX - 5}px`,
                             top: `${mouseY - 5}px`,
-                            display: popoverData == null ? 'none' : 'block',
+                            display: tooltipData == null ? 'none' : 'block',
                             borderRadius: '0',
                             padding: '0',
                             rotate: '45deg',
@@ -31,14 +30,19 @@
                         }">
                         </div>
                     </TooltipTrigger>
-                    <TooltipContent v-if="popoverData" class="popover-content">
-                        <p><strong>Location:</strong> {{ popoverData.place }}</p>
-                        <p><strong>Magnitude:</strong> {{ popoverData.magnitude }}</p>
+                    <TooltipContent v-if="tooltipData" class="popover-content">
+                        <p><strong>Location:</strong> {{ tooltipData.place }}</p>
+                        <p>
+                            <strong>Magnitude: </strong>
+                            <span :style="{ color: tooltipData.getColor(1) }"> {{ tooltipData.magnitude }}</span>
+                        </p>
+                        <p><strong>Time:</strong> {{ timeAgoString(tooltipData.time) }}</p>
                     </TooltipContent>
                 </Tooltip>
             </TooltipProvider>
         </div>
-        <p v-if="popoverData == null" id="country-label" ref="countryLabel" :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
+        <p v-if="tooltipData == null" id="country-label" ref="countryLabel"
+            :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
             {{ countryName }}
         </p>
     </div>
@@ -47,20 +51,11 @@
 TODO: WASD Controls?
 TODO: Move earthquake layer into its own vue component. As we add more features, it is important to keep
 them in separate layers. The ability to turn on/off layers should also be possible. 
-TODO: Panel with info when hovering earthquake (Place, Time, Magnitude)
 TODO: Panel with info when hovering country (Population, GDP, Continent, Region, Type?, Link to Wikipedia?)
 
 TODO: Custom orbit controls. WASD changes latitude and longitude. Ability to rotate to specific coordinate.
 
 TODO: Clusters. Points close together should show up as a cluster. Cluster can be clicked to view points in a list. 
-
-TODO: We may want to set anchor on pointer enter and have the trigger fllow the anchor until anchor moves
-Trigger should also be disabled if we aren't hovering any earthquakes
-
-Other than that, we may want to move our earthquakes 50% left and up as they are misplaced at the moment
-
-In general, just make sure that the trigger can't be clicked unless we are hovering over an earthquake
-Also make scale and position match perfectly
 
 <style lang="scss">
 canvas {
@@ -85,28 +80,13 @@ canvas {
     .earthquake {
         position: absolute;
 
-        // pointer-events: all;
-        cursor: pointer;
-
         width: 10px;
         height: 10px;
 
-        will-change: transform, backgroundColor;
-
         opacity: 0;
         animation: appear 1s forwards;
-    }
 
-    .earthquake::before {
-        content: '';
-        position: absolute;
-        top: -8px;
-        left: -8px;
-        width: 26px;
-        height: 26px;
-        background: transparent;
-        pointer-events: inherit;
-        z-index: -1;
+        will-change: transform, backgroundColor;
     }
 
     .pulse {
@@ -181,45 +161,23 @@ import { PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer } 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { radToDeg } from 'three/src/math/MathUtils';
 import { Animator, RotateAnimation, ScaleAnimation } from '../server/animator';
-import { getEarthquakes, type EQFeature } from '../server/earthquake';
+import { getEarthquakes, Earthquake } from '../server/earthquake';
 import { Easing } from '../server/easing';
 import type { FeatureCollection } from '../server/globe/geojson';
 import { Globe, type Country } from '../server/globe/globe';
-import { Geometry } from '../server/globe/geometry';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from './ui/tooltip'
-// import { Button } from '@/components/ui/button'
-// import { Popover, PopoverContent } from './ui/popover';
 
-// import { PopoverArrow, PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'radix-vue';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger
+} from './ui/tooltip'
 
 const input = shallowRef<HTMLDivElement>();
 const countryLabel = shallowRef<HTMLParagraphElement>();
 const countryName = ref('');
 
-const isPopoverOpen = ref(false);
-const popoverData = ref<Earthquake | null>(null);
-// const popoverPosition = ref({ top: 0, left: 0 });
-// const popoverAnchor = ref<AsTag | undefined>(undefined);
-
-// Function to open the popover and set content based on the clicked point
-function openPopoverWithContent(data: Earthquake, trigger: Component) {
-    isPopoverOpen.value = true;
-    popoverData.value = data;
-    // popoverAnchor.value = trigger;
-    // popoverPosition.value = { left: pos.x, top: pos.y };
-    // console.log(data);
-}
-
-// Example click handler for a point
-function onPointClick(pointIndex: number, trigger: Component) {
-    openPopoverWithContent(eqRaw.value[pointIndex], trigger);
-}
-
+const tooltipData = ref<Earthquake | null>(null);
 const eqRaw = ref<Earthquake[]>([]);
 
 type EqReactive = {
@@ -238,8 +196,28 @@ type EqReactive = {
 
 const eqReactive = ref<EqReactive[]>([]);
 
+function timeAgoString(time: number) {
+    const diff = Date.now() - time;
+
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    // Return the appropriate string
+    if (hours < 1) {
+        if (minutes === 1) return '1 minute ago';
+        return `${minutes} minutes ago`;
+    } else if (days < 1) {
+        if (hours === 1) return '1 hour ago';
+        return `${hours} hours ago`;
+    } else {
+        if (days === 1) return '1 day ago'
+        return `${days} days ago`;
+    }
+}
+
 function getClosestEarthquake() {
-    if (!eqReactive.value) return; 
+    if (!eqReactive.value) return;
 
     const mouse = new Vector2(mouseX.value, mouseY.value);
 
@@ -250,7 +228,7 @@ function getClosestEarthquake() {
 
     for (let i = 0; i < eqReactive.value.length; i++) {
         const eq = eqReactive.value[i];
-        
+
         if (eq.opacity < 0.5) continue;
 
         const eqX = Number(eq.transform!.x + 5); // Cancel out the -50% move we did earlier.
@@ -262,22 +240,22 @@ function getClosestEarthquake() {
             closest.i = i;
         }
     }
-    
+
     if (closest.i >= 0) {
-        popoverData.value = eqRaw.value[closest.i];
+        tooltipData.value = eqRaw.value[closest.i];
     } else {
-        popoverData.value = null;
+        tooltipData.value = null;
     }
 }
 
 function updateReactive(data: Earthquake[]): EqReactive[] {
     return data.map(eq => {
-        const worldPos = eq.getWorldPos();
+        const worldPos = eq.getWorldPos(globe);
 
         if (!worldPos) return { id: '', color: 'white', opacity: 0 };
 
-        const screenPos = eq.getScreenPos(worldPos);
-        const opacity = eq.getOpacity(worldPos);
+        const screenPos = eq.getScreenPos(camera, worldPos);
+        const opacity = eq.getOpacity(camera, worldPos);
 
         if (!screenPos || !opacity) return { id: '', color: 'white', opacity: 0 };
 
@@ -373,6 +351,7 @@ function createOrbitControls(camera: PerspectiveCamera, renderer: WebGLRenderer)
     controls.minPolarAngle = polarConstraint * deg2rad;
     controls.rotateSpeed = 0.5;
     controls.enablePan = false;
+    controls.enableZoom = false;
 
     return controls;
 }
@@ -386,70 +365,9 @@ function coordFromVector3(pos: Vector3) {
     return new Vector2(lon, lat);
 }
 
-class Earthquake {
-    id: string;
-    place: string;
-    magnitude: number;
-    origin: number[];
-    time: number;
-
-    delay: number;
-
-    constructor(data: EQFeature) {
-        this.id = data.id;
-        this.magnitude = data.properties.mag;
-        this.place = data.properties.place;
-        this.origin = data.geometry.coordinates;
-        this.time = data.properties.time;
-
-        this.delay = 2 + (Math.random() * 2);
-    }
-
-    public getWorldPos() {
-        if (!globe) return undefined;
-
-        const point = Geometry.vertex(this.origin, globe.getScale());
-        return point.applyAxisAngle(new Vector3(0, 1, 0), globe.getRotation());
-    }
-
-    /** Convert earthquake origin to screen position. */
-    public getScreenPos(worldPos: Vector3) {
-        if (!camera) return undefined;
-
-        const projected = worldPos.clone().project(camera);
-
-        return new Vector2(
-            (projected.x + 1) * window.innerWidth / 2,
-            (-projected.y + 1) * window.innerHeight / 2,
-        );
-    }
-
-    /** 10 is max magnitude, so anything above 5 will be enlarged. Anything else will be shrunk. */
-    public getScale() {
-        return this.magnitude / 5;
-    }
-
-    public getOpacity(worldPos: Vector3) {
-        if (!camera) return undefined
-
-        const a = camera.getWorldDirection(new Vector3()).negate().normalize();
-        const b = worldPos.normalize().clone();
-
-        return Math.min(Math.max(a.dot(b), 0.05), 1);
-    }
-
-    public getColor(opacity: number) {
-        if (this.magnitude < 3) return `rgba(46, 204, 103, ${opacity})`; // Green - Low
-        if (this.magnitude < 5) return `rgba(241, 196, 15, ${opacity})`; // Yellow - Moderate
-        if (this.magnitude < 7) return `rgba(230, 126, 34, ${opacity})`; // Orange - Strong
-        return `rgba(321, 76, 60, ${opacity})`;                          // Red - Severe
-    }
-}
-
 let globe: Globe | undefined;
 let camera: PerspectiveCamera | undefined;
-
-let animationFrameId: number = 0;
+let animationFrameId = 0;
 
 onBeforeUnmount(() => {
     cancelAnimationFrame(animationFrameId);
@@ -469,9 +387,6 @@ onMounted(() => {
 
         controls.minDistance = scale * 2.1;
         controls.maxDistance = scale * 2.1;
-        // controls.minDistance = scale * 1.25;
-        // controls.maxDistance = scale * 2;
-        // controls.zoomSpeed = scale / 50;
 
         if (camera) {
             camera.aspect = window.innerWidth / window.innerHeight;

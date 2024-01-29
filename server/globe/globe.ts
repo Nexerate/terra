@@ -17,8 +17,7 @@ class Globe {
         this.countries = [];
 
         for (const feature of data.features) {
-            const country = new Country(feature);
-            this.countries.push(country);
+            this.countries.push(new Country(feature));
         }
 
         this.node.add(this.sphere(0.9999, Globe.sphereMat));
@@ -119,9 +118,7 @@ class Country {
         this.borders = this.geometry.linesFromCoords(Country.borderMat);
         this.node = new Group();
 
-        for (const border of this.borders) {
-            this.node.add(border);
-        }
+        this.node.add(...this.borders);
     }
 
     public scale(scale: number) {

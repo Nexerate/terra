@@ -4,9 +4,13 @@ import { type Feature } from './geojson';
 
 abstract class Geometry {
     public abstract type: string;
-    protected boundingBox: Box2 | null = null;
+    boundingBox: Box2 | null = null;
+    data: Feature;
+    coordinates: number[][][] | number[][][][];
 
-    constructor(protected data: Feature, public coordinates: number[][][] | number[][][][]) {
+    constructor(data: Feature, coordinates: number[][][] | number[][][][]) {
+        this.data = data;
+        this.coordinates = coordinates;
         this.computeBoundingBox();
     }
 
@@ -47,7 +51,7 @@ abstract class Geometry {
     abstract linesFromCoords(mat: LineBasicMaterial): Line[];
 
     /** Convert coordinates to 3D position.*/
-    public static vertex([longitude, latitude]: number[], radius: number) {
+    public static vertex([longitude, latitude]: number[], radius: number): Vector3 {
         const lambda = degToRad(longitude - 90);
         const phi = degToRad(latitude);
         return new Vector3(
@@ -83,9 +87,6 @@ class Polygon extends Geometry {
     }
 
     public pointInPolygon(coord: Vector2): boolean {
-        // if (!this.boundingBox?.containsPoint(coord)) return false;
-
-        // Rings
         for (let i = 0; i < this.coordinates.length; i++) {
             if (this.windingNumber(coord, this.coordinates[i])) return true;
         }
@@ -134,11 +135,7 @@ class MultiPolygon extends Geometry {
     }
 
     public pointInPolygon(coord: Vector2): boolean {
-        // if (!this.boundingBox?.containsPoint(coord)) return false;
-
-        // Polygons
         for (let i = 0; i < this.coordinates.length; i++) {
-            // Rings
             for (let j = 0; j < this.coordinates[i].length; j++) {
                 if (this.windingNumber(coord, this.coordinates[i][j])) return true;
             }
