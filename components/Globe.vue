@@ -1,5 +1,17 @@
 <template>
     <div ref="input">
+        <!-- <div :style="{
+            position: 'absolute',
+            width: '100vh',
+            height: '100vh',
+            borderRadius: '50%',
+            // border: '2px solid white',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            userSelect: 'none',
+            pointerEvents: 'none',
+            boxShadow: '0 0 25px #222222',
+        }" /> -->
         <canvas ref="canvas" />
         <div id="earthquakes">
             <div v-for="eq in eqReactive" :key="eq.id" class="earthquake" :style="{
@@ -45,6 +57,10 @@
             :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
             {{ countryName }}
         </p>
+        <PhaseText text="Earthquakes" :min-delay="0.2" :max-delay="1" id="layer-header" />
+        <!-- <p id="layer-header">
+            Earthquakes
+        </p> -->
     </div>
 </template>
 
@@ -57,6 +73,9 @@ TODO: Custom orbit controls. WASD changes latitude and longitude. Ability to rot
 
 TODO: Clusters. Points close together should show up as a cluster. Cluster can be clicked to view points in a list. 
 
+You can switch between different data sources by pressing tab. A camera distortion effect will be applied, and the 
+layer of data will be switched out. The header will also transition. 
+
 <style lang="scss">
 canvas {
     user-select: none;
@@ -67,6 +86,14 @@ canvas {
     overflow: hidden;
     cursor: pointer;
     user-select: none;
+}
+
+#layer-header {
+    position: fixed;
+    left: 3.5vw;
+    top: 2.5vh;
+    font-size: 30px;
+    letter-spacing: 1px;
 }
 
 #earthquakes {
@@ -165,13 +192,14 @@ import { getEarthquakes, Earthquake } from '../server/earthquake';
 import { Easing } from '../server/easing';
 import type { FeatureCollection } from '../server/globe/geojson';
 import { Globe, type Country } from '../server/globe/globe';
-
+import { RenderEngine } from '../server/render_engine';
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger
 } from './ui/tooltip'
+
 
 const input = shallowRef<HTMLDivElement>();
 const countryLabel = shallowRef<HTMLParagraphElement>();
@@ -278,7 +306,6 @@ function updateReactive(data: Earthquake[]): EqReactive[] {
                 scale,
             },
             opacity,
-            // transform: `translate3d(${x}px, ${y}px, 0) scale(${scale}) rotateZ(45deg)`,
             color,
             pulse,
             delay,
@@ -316,7 +343,6 @@ function rotationFromUTC() {
     const millisecondsInADay = 24 * 60 * 60 * 1000;
     const rotation = ((utcTime % millisecondsInADay) / millisecondsInADay) * (2 * Math.PI);
 
-    // return rotation + (Math.PI / 2);
     return rotation;
 }
 
@@ -341,8 +367,8 @@ function createRenderer(canvas: HTMLCanvasElement | undefined, window: Window) {
     return renderer;
 }
 
-function createOrbitControls(camera: PerspectiveCamera, renderer: WebGLRenderer) {
-    const controls = new OrbitControls(camera, renderer.domElement);
+function createOrbitControls(camera: PerspectiveCamera, renderer: HTMLElement | undefined) {
+    const controls = new OrbitControls(camera, renderer);
 
     const polarConstraint = 30;
 
@@ -371,83 +397,72 @@ let animationFrameId = 0;
 
 onBeforeUnmount(() => {
     cancelAnimationFrame(animationFrameId);
+    window.removeEventListener('resize', onWindowResize);
+    window.removeEventListener('mousemove', onMouseMove);
+    engine?.dispose();
 });
 
+function onWindowResize() {
+    if (!controls) return;
+
+    const scale = Math.min(window.innerWidth, window.innerHeight);
+    globe?.scale(scale);
+
+    controls.minDistance = scale * 2;
+}
+
+function onMouseMove(event: MouseEvent) {
+    // Calculate normalized device coordinates (-1 to +1) for the mouse
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    mouseX.value = event.clientX;
+    mouseY.value = event.clientY;
+}
+
+let controls: OrbitControls | undefined;
+// let renderer: WebGLRenderer | undefined;
+let engine: RenderEngine;
+
+const mouse = new Vector2(-1, -1); // Initialized to top-left of the screen to avoid false intersections
+
 onMounted(() => {
-    camera = createCamera(window);
-    const renderer = createRenderer(canvas.value, window);
-    const controls = createOrbitControls(camera, renderer);
-
+    // renderer = createRenderer(canvas.value, window);
+    
     const raycaster = new Raycaster();
-    const mouse = new Vector2(-1, -1); // Initialized to top-left of the screen to avoid false intersections
-
-    function onWindowResize() {
-        const scale = Math.min(window.innerWidth, window.innerHeight);
-        globe?.scale(scale);
-
-        controls.minDistance = scale * 2.1;
-        controls.maxDistance = scale * 2.1;
-
-        if (camera) {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.near = 1;
-            camera.far = scale * 4;
-
-            camera.updateProjectionMatrix();
-        }
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
+    
     window.addEventListener('resize', onWindowResize, false);
-
-    function onMouseMove(event: MouseEvent) {
-        // Calculate normalized device coordinates (-1 to +1) for the mouse
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-        mouseX.value = event.clientX;
-        mouseY.value = event.clientY;
-    }
-
-    // function onClick(event: MouseEvent) {
-    //     if (selected === hovered) return;
-
-    //     selected?.updateMaterial(borderMat);
-    //     selected = hovered;
-    //     selected?.updateMaterial(borderSelectedMat);
-    // }
-
+    
+    
     window.addEventListener('mousemove', onMouseMove, false);
-    // window.addEventListener('contextmenu', onClick);
-
+    
     let lastFrameTime = 0;
-
+    
     async function main() {
         const geojsonData = await loadGeoJson();
-
+        
         globe = new Globe(geojsonData);
         globe.rotate(rotationFromUTC());
-
+        
         const scene = new Scene();
         scene.add(globe.node);
-
+        
+        camera = createCamera(window);
+        controls = createOrbitControls(camera, canvas.value);
+        
+        engine = new RenderEngine(scene, camera, canvas.value, window);
+        
         onWindowResize();
         animate(0);
-
-        if (camera) {
-            camera.position.z = Math.min(window.innerWidth, window.innerHeight) * -2;
-        }
 
         const scale = globe.getScale();
         const rot = globe.getRotation();
 
-        new ScaleAnimation(globe.node, 2, scale / 10, scale, Easing.easeOutCubic).play();
+        new ScaleAnimation(globe.node, 2, 10, scale, Easing.easeOutCubic).play();
         new RotateAnimation(globe.node, 3, rot, rot + Math.PI * 2, Easing.easeOutCubic).play();
 
         // An optimization would be to move selection to mouse move, window resize and zoom
         function animate(time: number) {
-            // globe?.rotate(globe.node.rotation.y + (Math.PI / 100000));
-
             // Convert time to seconds
             time *= 0.001;
 
@@ -455,11 +470,11 @@ onMounted(() => {
             const deltaTime = time - lastFrameTime;
             lastFrameTime = time;
 
+            // TODO: Bad placement?
+            if (!controls) return;
+
             controls.update();
             Animator.update(deltaTime);
-
-            // const distanceT = remap(controls.getDistance(), controls.minDistance, controls.maxDistance, 0, 1);
-            // controls.rotateSpeed = lerp(0.2, 0.5, distanceT);
 
             if (camera && globe) {
                 // Perform the raycast
@@ -506,7 +521,7 @@ onMounted(() => {
             }
 
             if (camera) {
-                renderer.render(scene, camera);
+                engine.render();
             }
 
             eqReactive.value = updateReactive(eqRaw.value);
@@ -524,7 +539,6 @@ onMounted(() => {
             });
             console.log(eqRaw.value.length);
         }
-
     }
 
     main();
