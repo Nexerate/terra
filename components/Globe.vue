@@ -57,10 +57,7 @@
             :style="{ left: (mouseX + 10) + 'px', top: (mouseY - 30) + 'px' }">
             {{ countryName }}
         </p>
-        <PhaseText text="Earthquakes" :min-delay="0.2" :max-delay="1" id="layer-header" />
-        <!-- <p id="layer-header">
-            Earthquakes
-        </p> -->
+        <PhaseText text="Earthquakes" :delay="3" :animation="1" id="layer-header" />
     </div>
 </template>
 

@@ -33,25 +33,20 @@
 
 const props = defineProps({
     text: String,
-    minDelay: Number,
-    maxDelay: Number
-    // strength: Number
+    delay: Number,
+    animation: Number
 });
 
 const phases = ref<{char: string, delay: number}[]>([])
 const text = props.text ?? '';
-const minDelay = props.minDelay ?? 0;
-const maxDelay = props.maxDelay ?? 1;
+const delay = props.delay ?? 0;
+const animation = props.animation ?? 1;
 
 onMounted(() => {
-    // for (let i = 0; i < text.length; i++) {
-    //     ph
-    // }
-
     phases.value = text.split('').map(char => {
         return {
             char,
-            delay: minDelay + (Math.random() * (maxDelay - minDelay)),
+            delay: delay + Math.random() * animation,
         }
     })
 })
